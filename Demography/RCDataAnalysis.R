@@ -1,49 +1,62 @@
-library(MASS)
-library(car)
-library(boot)
-library(psych)
-InGroupData<-read.csv("InGroupData.csv", check.names = FALSE)
-AgeData<-read.csv("AgeData.csv", check.names = FALSE)
-VirusData<-read.csv("VirusData.csv", check.names = FALSE)
+library(dplyr)
+library(forecast)
+
+InGroupData<-read.csv("../Data/InGroupData.csv", check.names = FALSE)
+AgeData<-read.csv("../Data/AgeData.csv", check.names = FALSE)
+VirusData<-read.csv("../Data/VirusData.csv", check.names = FALSE)
 VirusData<-subset(VirusData, select=-Age)
 VirusData<-na.omit(VirusData)
 
+#The number of immigrants, emigrants, and deaths every year by Sex
 sum.immig<-tapply(InGroupData$Immig, list(InGroupData$Immig, InGroupData$Sex), length)
-sum.immig<-sum.immig[-nrow(sum.immig),]
+sum.immig<-sum.immig[-nrow(sum.immig),] #remove incomplete 2015 data 
 sum.emig<-tapply(InGroupData$Emig, list(InGroupData$Emig, InGroupData$Sex), length)
 sum.death<-tapply(InGroupData$Death, list(InGroupData$Death, InGroupData$Sex), length)
+sum.death<-sum.emig[-nrow(sum.death),] #remove incomplete 2015 data 
 
-sums.InGroup<-colSums(InGroupData[5:13])
-sex.ratio<-colSums(subset(InGroupData, Sex=="F", select = as.character(startObs:(endYear-1))))/
-  colSums(subset(InGroupData, Sex=="M", select = as.character(startObs:(endYear-1))))
-mean.age<-colSums(AgeData[2:10])/colSums(InGroupData[5:13])
-AdultMat.f<-subset(AgeData, Sex=="F", select = as.character(startObs:(endYear-1)))>3
-AdultMat.m<-subset(AgeData, Sex=="M", select = as.character(startObs:(endYear-1)))>4
+sums.InGroup<-colSums(subset(InGroupData, select = as.character(2006:2014)))
+sex.ratio<-colSums(subset(InGroupData, Sex=="F", select = as.character(2006:2014)))/
+  colSums(subset(InGroupData, Sex=="M", select = as.character(2006:2014)))
+mean.age<-colSums(subset(AgeData, select = as.character(2006:2014)))/sums.InGroup
+AdultMat.f<-subset(AgeData, Sex=="F", select = as.character(2006:2014))>3
+AdultMat.m<-subset(AgeData, Sex=="M", select = as.character(2006:2014))>4
 InfantMat<-AgeData[2:10]==1
 JuvenileMat<-AgeData[2:10]==2 | AgeData[2:10]==3 
-sums.adult.f<-colSums(subset(InGroupData, Sex=="F", select = as.character(startObs:(endYear-1)))*AdultMat.f)
-sums.adult.m<-colSums(subset(InGroupData, Sex=="M", select = as.character(startObs:(endYear-1)))*AdultMat.m)
+sums.adult.f<-colSums(subset(InGroupData, Sex=="F", select = as.character(2006:2014))*AdultMat.f)
+sums.adult.m<-colSums(subset(InGroupData, Sex=="M", select = as.character(2006:2014))*AdultMat.m)
 sums.infant<-colSums(InGroupData[5:13]*InfantMat)
 sums.juvenile<-colSums(InGroupData[5:13]*JuvenileMat)
+ts.demo<-ts(cbind(Sum= sums.InGroup, AdF=sums.adult.f, AdM=sums.adult.m, Juv=sums.juvenile, Ift=sums.infant), start = 2006)
+plot(ts.demo)
 
 #Compute ratios
 sex.ratio.adult<-sums.adult.f/sums.adult.m
 sex.ratio.adult.m<-1/sex.ratio.adult
 infant.ratio<-sums.infant/sums.adult.f #birth rate
 juvenile.ratio<-sums.juvenile/sums.adult.f
+ts.ratio<-ts(cbind(AdF=sex.ratio.adult, AdM=sex.ratio.adult.m, Juv=juvenile.ratio, Ift=infant.ratio), start = 2006)
+plot(ts.ratio)
 
 #population characteristics is likely to have lagged effect on life events like migration and birth
+ts.demo.lag1<-lag(ts.demo)
+ts.ratio.lag1<-lag(ts.ratio)
 sums.adult.m.lag1<-sums.adult.m[-length(sums.adult.m)]
 sums.adult.f.lag1<-sums.adult.f[-length(sums.adult.f)]
 sums.juvenile.lag1<-sums.juvenile[-length(sums.juvenile)]
 sex.ratio.adult.lag1<-sex.ratio.adult[-length(sex.ratio.adult)]
 dif.m.lag1<-diff(sums.adult.m)
 dif.f.lag1<-diff(sums.adult.f)
+#ndiffs(ts.demo)
+ts.dif1<-diff(ts.demo, 1)
+Acf(ts.demo)
 
 #birth rate is negatively correlated with the population size
 pop.lag1<-sums.adult.f.lag1+sums.adult.m.lag1+sums.juvenile.lag1
+sums.adult.lag1<-sums.adult.f.lag1+sums.adult.m.lag1
 lm.birth<-lm(infant.ratio[-1]~pop.lag1)
 summary(lm.birth)
+summary(lm(infant.ratio[-1]~sums.adult.lag1+I(sums.adult.lag1^2)))
+summary(lm(infant.ratio[-1]~pop.lag1+I(pop.lag1^2)))
 pdf("../Manuscript/figures/Birth.pdf")
 plot(pop.lag1, infant.ratio[-1], xlab = "Population size", ylab = "Birth rate")
 abline(lm.birth)
@@ -55,27 +68,37 @@ summary(lm(dif.f.lag1~sums.adult.m[-1]+sums.adult.f[-1])) #neither is significan
 summary(lm(sums.adult.f[-1]~sums.adult.m.lag1+sums.adult.f.lag1)) #only correlated with the males
 
 #immigration of females ~ males + males/females + interaction
+summary(lm(sum.immig[,'F']~sums.adult.m+sums.adult.f))
+summary(lm(sum.immig[-1,'F']~pop.lag1))
 summary(lm(sum.immig[-1,'F']~sums.adult.m.lag1+sums.adult.f.lag1)) #neither is significant
-summary(lm(sum.immig[-1,'F']~sums.adult.m.lag1+I(sums.adult.m.lag1/sums.adult.f.lag1)))#neither is significant
-lm.immig<-lm(sum.immig[-1,'F']~sums.adult.m.lag1*I(sums.adult.m.lag1/sums.adult.f.lag1))
+lm.immig<-lm(sum.immig[-1,'F']~sums.adult.m.lag1+sums.adult.f.lag1+I(sums.adult.m.lag1/sums.adult.f.lag1)+I(sums.adult.m.lag1^2/sums.adult.f.lag1))
 summary(lm.immig)#interaction is significantly and positively correlated with immigration
+step(lm.immig)
+#This is the best model:
+summary(lm(sum.immig[-1,'F']~sums.adult.m.lag1+I(sums.adult.m.lag1^2/sums.adult.f.lag1)))
+#All are significant
 lm.immig1<-lm(sum.immig[-1,'F']~I(sums.adult.m.lag1^2/sums.adult.f.lag1))
 summary(lm.immig1)#Interestingly, this is not significant
+summary(lm(sum.immig[-1,'F']~ sums.adult.m.lag1+I(sums.adult.m.lag1^2)))
 pdf("../Manuscript/figures/Immig.pdf")
 plot(sums.adult.m.lag1/sex.ratio.adult.lag1, sum.immig[-1,'F'], xlab = "M(t-1)^2/F(t-1)", ylab = "Female immigration")
 abline(lm.immig1)
 dev.off()
 
 #emigration of females ~ females + females/males + interaction
-summary(lm(sum.emig[,'F']~sums.adult.m.lag1+sums.adult.f.lag1)) #correlated with females, marginally with males
-lm.emig<-lm(sum.emig[,'F']~sums.adult.f.lag1*sex.ratio.adult.lag1)
-summary(lm(sum.emig[,'F']~sums.adult.f.lag1*sex.ratio.adult.lag1))
+summary(lm(sum.emig[,'F']~sums.adult.m.lag1+sums.adult.f.lag1))
+summary(lm(sum.emig[,'F']/sums.adult.f.lag1~sex.ratio.adult.lag1))
+summary(lm(sum.emig[,'F']~I(1/sums.adult.m.lag1)*sums.adult.f.lag1)) 
+#correlated positively with females and negatively with males, uncorrelated with sex ratio
+lm.emig<-lm(sum.emig[,'F']~sums.adult.f.lag1+I(sums.adult.f.lag1*sex.ratio.adult.lag1))
+summary(lm.emig)
 #The interaction is positively and significantly correlated with emigration, 
 #but female number and sex ratio are only negatively correlated and marginally significant.
 vif(lm.emig) #variance inflation factor
 plot(hatvalues(lm.emig)) #leverage
-lm.emig1<-lm(sum.emig[,'F']~I(sums.adult.f.lag1*sex.ratio.adult.lag1))
+lm.emig1<-lm(sum.emig[,'F']~sums.adult.f.lag1+ sums.adult.m.lag1+I(sums.adult.f.lag1*sex.ratio.adult.lag1))
 summary(lm.emig1) #significant correlation
+step(lm.emig1)
 par(mfrow=c(2,2))
 plot(lm.emig1)
 par(mfrow=c(1,1))

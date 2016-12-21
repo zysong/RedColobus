@@ -5,7 +5,7 @@ library(snowfall)
 set.seed(101)
 
 #the whole chuck of code is to reorganize the data for BaSTA
-oriData<-read.csv("../Colin/forBaSTA201503.csv", head=T)
+oriData<-read.csv("../Data/forBaSTA201503.csv", head=T)
 nInd<-nrow(oriData)
 startYear<-min(oriData$Start)
 startObs<-2006
@@ -42,10 +42,21 @@ for(i in 1:n.input){
 #data check (if silent = F)
 newData<-DataCheck(inputData, studyStart=2000, studyEnd=2015, autofix = rep(1, 7), silent=F)
 #run basta to estimate the parameters for the chosen model (Here I chose Gombertz and bthtub shape)
-out0<-basta(object = inputData, studyStart=2000, studyEnd=2015, model = "GO", shape = "simple", 
+out1<-basta(object = inputData, studyStart=2000, studyEnd=2015, model = "GO", shape = "bathtub", 
             recaptTrans=c(2000, 2006), niter=20000, burnin=2000, thinning=40, nsim = 4, parallel = TRUE, ncups = 4)
 #view the summary of the result
-summary(out0, digits=3)
+summary(out1, digits=3)
 
 #plot the bathtub mortality curve
-plot(out0, plot.trace=F, noCI=T) #note the high error bars because we do not have age data of old individuals
+plot(out1, plot.trace=F, noCI=F) #note the high error bars because we do not have age data of old individuals
+
+#assume all dispearance as death
+inputData2<-inputData
+inputData2$Death<-oriData$End[oriData$SexN==0]
+inputData2$Death[inputData2$`2015`==1]<-0
+out2<-basta(object = inputData2, studyStart=2000, studyEnd=2015, model = "GO", shape = "bathtub", 
+            recaptTrans=c(2000, 2006), niter=20000, burnin=2000, thinning=40, nsim = 4, parallel = TRUE, ncups = 4)
+#view the summary of the result
+summary(out2, digits=3)
+#plot the bathtub mortality curve
+plot(out2, plot.trace=F, noCI=F)
